@@ -35,8 +35,8 @@ function sendSplashStatus(step, state, message, progress) {
 
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
-    width: 460,
-    height: 420,
+    width: 380,
+    height: 380,
     frame: false,
     transparent: true,
     resizable: false,
