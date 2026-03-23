@@ -21,7 +21,7 @@
       padding: 48px 64px;
       text-align: center;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-      width: 420px;
+      width: 440px;
     }
     .logo {
       width: 80px;
@@ -33,6 +33,11 @@
       justify-content: center;
       margin: 0 auto 24px;
       position: relative;
+      animation: logoPulse 2s ease-in-out infinite;
+    }
+    @keyframes logoPulse {
+      0%, 100% { box-shadow: 0 0 20px rgba(108, 92, 231, 0.3); }
+      50% { box-shadow: 0 0 40px rgba(108, 92, 231, 0.6); }
     }
     .logo-letter {
       font-size: 48px;
@@ -59,35 +64,82 @@
     .subtitle {
       color: #8888a4;
       font-size: 12px;
-      margin-bottom: 32px;
+      margin-bottom: 28px;
     }
-    .loader {
-      width: 200px;
+
+    /* Steps */
+    .steps {
+      text-align: left;
+      margin-bottom: 24px;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+      font-size: 12px;
+      color: #555570;
+      transition: color 0.3s ease;
+    }
+    .step.active {
+      color: #a29bfe;
+    }
+    .step.done {
+      color: #00b894;
+    }
+    .step.error {
+      color: #e74c3c;
+    }
+    .step-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+      transition: all 0.3s ease;
+    }
+    .step.active .step-icon {
+      border-color: #6c5ce7;
+      animation: spin 1s linear infinite;
+    }
+    .step.done .step-icon {
+      border-color: #00b894;
+      background: #00b894;
+    }
+    .step.error .step-icon {
+      border-color: #e74c3c;
+      background: #e74c3c;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Progress bar */
+    .progress-container {
+      width: 100%;
       height: 3px;
       background: #2a2a3e;
       border-radius: 2px;
-      margin: 0 auto 16px;
+      margin-bottom: 12px;
       overflow: hidden;
     }
-    .loader-bar {
+    .progress-bar {
       height: 100%;
-      background: linear-gradient(90deg, #6c5ce7, #a29bfe);
+      background: linear-gradient(90deg, #6c5ce7, #a29bfe, #00b894);
       border-radius: 2px;
-      animation: loading 2.5s ease-in-out infinite;
+      width: 0%;
+      transition: width 0.5s ease;
     }
-    @keyframes loading {
-      0% { width: 0%; margin-left: 0; }
-      50% { width: 60%; margin-left: 20%; }
-      100% { width: 0%; margin-left: 100%; }
-    }
-    .status {
+
+    .status-text {
       color: #8888a4;
-      font-size: 11px;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 0.5; }
-      50% { opacity: 1; }
+      font-size: 10px;
+      min-height: 14px;
     }
   </style>
 </head>
@@ -99,8 +151,61 @@
     </div>
     <h1><span>tnyfy</span></h1>
     <p class="subtitle">AI-Powered E-Commerce Automation</p>
-    <div class="loader"><div class="loader-bar"></div></div>
-    <p class="status">Demarrage des services IA...</p>
+
+    <div class="steps">
+      <div class="step" id="step-docker">
+        <div class="step-icon"></div>
+        <span>Base de donnees</span>
+      </div>
+      <div class="step" id="step-backend">
+        <div class="step-icon"></div>
+        <span>Moteur IA</span>
+      </div>
+      <div class="step" id="step-frontend">
+        <div class="step-icon"></div>
+        <span>Interface dashboard</span>
+      </div>
+      <div class="step" id="step-ready">
+        <div class="step-icon"></div>
+        <span>Finalisation</span>
+      </div>
+    </div>
+
+    <div class="progress-container">
+      <div class="progress-bar" id="progress"></div>
+    </div>
+    <p class="status-text" id="status"></p>
   </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    ipcRenderer.on('splash-status', (event, data) => {
+      const { step, state, message, progress } = data;
+
+      // Update step state
+      if (step) {
+        const el = document.getElementById('step-' + step);
+        if (el) {
+          el.className = 'step ' + state;
+          if (state === 'done') {
+            el.querySelector('.step-icon').innerHTML = '✓';
+          } else if (state === 'error') {
+            el.querySelector('.step-icon').innerHTML = '✗';
+          }
+        }
+      }
+
+      // Update progress bar
+      if (progress !== undefined) {
+        document.getElementById('progress').style.width = progress + '%';
+      }
+
+      // Update status text
+      if (message) {
+        document.getElementById('status').textContent = message;
+      }
+    });
+  </script>
 </body>
 </html>

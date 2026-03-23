@@ -1,6 +1,6 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require("electron");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const http = require("http");
 
 let mainWindow = null;
@@ -8,6 +8,7 @@ let splashWindow = null;
 let tray = null;
 let backendProcess = null;
 let frontendProcess = null;
+let dockerProcess = null;
 
 const isDev = process.argv.includes("--dev");
 const ROOT_DIR = isDev
@@ -17,24 +18,40 @@ const ROOT_DIR = isDev
 const BACKEND_PORT = 8000;
 const FRONTEND_PORT = 3000;
 
-// ─── Splash Screen ────────────────────────────────────────────────
+// ─── Send status to splash screen ────────────────────────────────
+
+function sendSplashStatus(step, state, message, progress) {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.send("splash-status", {
+      step,
+      state,
+      message,
+      progress,
+    });
+  }
+}
+
+// ─── Splash Screen ───────────────────────────────────────────────
 
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
-    width: 450,
-    height: 320,
+    width: 460,
+    height: 420,
     frame: false,
     transparent: true,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    webPreferences: { nodeIntegration: false },
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
   });
   splashWindow.loadFile(path.join(__dirname, "splash.html"));
   splashWindow.center();
 }
 
-// ─── Main Window ──────────────────────────────────────────────────
+// ─── Main Window ─────────────────────────────────────────────────
 
 function createMainWindow() {
   const iconPath = path.join(__dirname, "icon.ico");
@@ -56,11 +73,21 @@ function createMainWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.maximize();
 
   mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`);
 
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDesc) => {
+    console.log("[Tnyfy] Page load failed, retrying in 2s...", errorDesc);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`);
+      }
+    }, 2000);
+  });
+
   mainWindow.once("ready-to-show", () => {
-    if (splashWindow) {
+    if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.close();
       splashWindow = null;
     }
@@ -73,19 +100,19 @@ function createMainWindow() {
   });
 
   mainWindow.on("close", (event) => {
-    // Minimize to tray instead of closing
-    event.preventDefault();
-    mainWindow.hide();
+    if (!app.isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
   });
 
-  // Open external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 }
 
-// ─── System Tray ──────────────────────────────────────────────────
+// ─── System Tray ─────────────────────────────────────────────────
 
 function createTray() {
   const iconPath = path.join(__dirname, "icon.ico");
@@ -112,7 +139,7 @@ function createTray() {
       label: "Quitter Tnyfy",
       click: () => {
         app.isQuitting = true;
-        stopServices();
+        stopAllServices();
         app.quit();
       },
     },
@@ -129,19 +156,65 @@ function createTray() {
   });
 }
 
-// ─── Backend & Frontend Services ──────────────────────────────────
+// ─── Docker (PostgreSQL + Redis) ─────────────────────────────────
+
+function startDocker() {
+  return new Promise((resolve) => {
+    sendSplashStatus("docker", "active", "Demarrage de la base de donnees...", 5);
+
+    // Check if docker is available
+    try {
+      execSync("docker info", { stdio: "ignore", timeout: 5000 });
+    } catch (e) {
+      console.log("[Tnyfy] Docker not available, skipping...");
+      sendSplashStatus("docker", "error", "Docker non disponible - mode demo", 10);
+      setTimeout(resolve, 500);
+      return;
+    }
+
+    const composeFile = path.join(ROOT_DIR, "docker-compose.yml");
+
+    sendSplashStatus("docker", "active", "Lancement PostgreSQL + Redis...", 8);
+
+    dockerProcess = spawn("docker", ["compose", "-f", composeFile, "up", "-d"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: true,
+    });
+
+    dockerProcess.on("close", (code) => {
+      if (code === 0) {
+        console.log("[Tnyfy] Docker services started");
+        sendSplashStatus("docker", "done", "Base de donnees prete", 20);
+      } else {
+        console.log("[Tnyfy] Docker compose failed (code " + code + ")");
+        sendSplashStatus("docker", "error", "Base de donnees non disponible - mode demo", 20);
+      }
+      resolve();
+    });
+
+    dockerProcess.on("error", () => {
+      sendSplashStatus("docker", "error", "Docker non disponible - mode demo", 20);
+      resolve();
+    });
+
+    setTimeout(() => resolve(), 30000);
+  });
+}
+
+// ─── Backend (FastAPI + uvicorn) ─────────────────────────────────
 
 function startBackend() {
   return new Promise((resolve) => {
-    const backendDir = isDev
-      ? path.join(ROOT_DIR, "backend")
-      : path.join(ROOT_DIR, "backend");
+    sendSplashStatus("backend", "active", "Initialisation du moteur IA...", 25);
+
+    const backendDir = path.join(ROOT_DIR, "backend");
 
     const venvPython = isDev
       ? path.join(backendDir, ".venv", "Scripts", "python.exe")
       : "python";
 
-    console.log("[Tnyfy] Starting backend...");
+    console.log("[Tnyfy] Starting backend from:", backendDir);
+    console.log("[Tnyfy] Python:", venvPython);
 
     backendProcess = spawn(
       venvPython,
@@ -153,54 +226,79 @@ function startBackend() {
       }
     );
 
+    let resolved = false;
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        sendSplashStatus("backend", "done", "Moteur IA pret", 50);
+        resolve();
+      }
+    };
+
     backendProcess.stdout.on("data", (data) => {
       const msg = data.toString();
       console.log("[Backend]", msg.trim());
       if (msg.includes("Uvicorn running") || msg.includes("Application startup complete")) {
-        resolve();
+        done();
       }
     });
 
     backendProcess.stderr.on("data", (data) => {
       const msg = data.toString();
       console.log("[Backend]", msg.trim());
+      sendSplashStatus("backend", "active", "Chargement des agents IA...", 35);
       if (msg.includes("Uvicorn running") || msg.includes("Application startup complete")) {
-        resolve();
+        done();
       }
     });
 
     backendProcess.on("error", (err) => {
       console.error("[Backend] Failed to start:", err.message);
-      resolve(); // Don't block, continue without backend
+      sendSplashStatus("backend", "error", "Erreur moteur IA: " + err.message, 50);
+      if (!resolved) {
+        resolved = true;
+        resolve();
+      }
     });
 
-    // Timeout - resolve anyway after 15 seconds
-    setTimeout(resolve, 15000);
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        sendSplashStatus("backend", "done", "Moteur IA pret", 50);
+        resolve();
+      }
+    }, 15000);
   });
 }
 
+// ─── Frontend (Next.js) ──────────────────────────────────────────
+
 function startFrontend() {
   return new Promise((resolve) => {
-    const frontendDir = isDev
-      ? path.join(ROOT_DIR, "frontend")
-      : path.join(ROOT_DIR, "frontend");
+    sendSplashStatus("frontend", "active", "Construction de l'interface...", 55);
 
-    console.log("[Tnyfy] Starting frontend...");
+    const frontendDir = path.join(ROOT_DIR, "frontend");
+
+    console.log("[Tnyfy] Starting frontend from:", frontendDir);
 
     if (isDev) {
-      // In dev mode, use npm run dev
-      const npmPath = path.join("C:", "Program Files", "nodejs", "npm.cmd");
-      frontendProcess = spawn(npmPath, ["run", "dev"], {
+      const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+      frontendProcess = spawn(npmCmd, ["run", "dev"], {
         cwd: frontendDir,
-        env: { ...process.env, PORT: String(FRONTEND_PORT) },
+        env: { ...process.env, PORT: String(FRONTEND_PORT), BROWSER: "none" },
         stdio: ["ignore", "pipe", "pipe"],
         shell: true,
       });
 
+      let resolved = false;
+
       frontendProcess.stdout.on("data", (data) => {
         const msg = data.toString();
         console.log("[Frontend]", msg.trim());
-        if (msg.includes("Ready") || msg.includes("localhost")) {
+        sendSplashStatus("frontend", "active", "Compilation du dashboard...", 65);
+        if ((msg.includes("Ready") || msg.includes("localhost") || msg.includes("compiled")) && !resolved) {
+          resolved = true;
+          sendSplashStatus("frontend", "done", "Interface prete", 80);
           resolve();
         }
       });
@@ -208,12 +306,18 @@ function startFrontend() {
       frontendProcess.stderr.on("data", (data) => {
         console.log("[Frontend]", data.toString().trim());
       });
-    } else {
-      // In production, use the standalone server
-      const nodePath = process.execPath.includes("electron")
-        ? "node"
-        : process.execPath;
 
+      frontendProcess.on("error", (err) => {
+        console.error("[Frontend] Failed:", err.message);
+        sendSplashStatus("frontend", "error", "Erreur interface: " + err.message, 80);
+        if (!resolved) { resolved = true; resolve(); }
+      });
+
+      setTimeout(() => {
+        if (!resolved) { resolved = true; resolve(); }
+      }, 30000);
+    } else {
+      const nodePath = process.execPath.includes("electron") ? "node" : process.execPath;
       frontendProcess = spawn(
         nodePath,
         [path.join(frontendDir, "server.js")],
@@ -226,32 +330,22 @@ function startFrontend() {
 
       frontendProcess.stdout.on("data", (data) => {
         console.log("[Frontend]", data.toString().trim());
+        sendSplashStatus("frontend", "done", "Interface prete", 80);
         resolve();
       });
+
+      frontendProcess.on("error", (err) => {
+        console.error("[Frontend] Failed:", err.message);
+        sendSplashStatus("frontend", "error", "Erreur interface", 80);
+        resolve();
+      });
+
+      setTimeout(resolve, 20000);
     }
-
-    frontendProcess.on("error", (err) => {
-      console.error("[Frontend] Failed to start:", err.message);
-      resolve();
-    });
-
-    // Timeout
-    setTimeout(resolve, 20000);
   });
 }
 
-function stopServices() {
-  console.log("[Tnyfy] Stopping services...");
-
-  if (backendProcess) {
-    backendProcess.kill("SIGTERM");
-    backendProcess = null;
-  }
-  if (frontendProcess) {
-    frontendProcess.kill("SIGTERM");
-    frontendProcess = null;
-  }
-}
+// ─── Wait for server ─────────────────────────────────────────────
 
 function waitForServer(port, maxAttempts = 30) {
   return new Promise((resolve) => {
@@ -281,20 +375,66 @@ function waitForServer(port, maxAttempts = 30) {
   });
 }
 
-// ─── App Lifecycle ────────────────────────────────────────────────
+// ─── Stop all services cleanly ───────────────────────────────────
+
+function stopAllServices() {
+  console.log("[Tnyfy] Stopping all services...");
+
+  // Kill backend
+  if (backendProcess && !backendProcess.killed) {
+    try {
+      // On Windows, SIGTERM doesn't work well - use taskkill for the process tree
+      if (process.platform === "win32") {
+        execSync(`taskkill /PID ${backendProcess.pid} /T /F`, { stdio: "ignore" });
+      } else {
+        backendProcess.kill("SIGTERM");
+      }
+    } catch (e) { /* process may already be dead */ }
+    backendProcess = null;
+  }
+
+  // Kill frontend
+  if (frontendProcess && !frontendProcess.killed) {
+    try {
+      if (process.platform === "win32") {
+        execSync(`taskkill /PID ${frontendProcess.pid} /T /F`, { stdio: "ignore" });
+      } else {
+        frontendProcess.kill("SIGTERM");
+      }
+    } catch (e) { /* process may already be dead */ }
+    frontendProcess = null;
+  }
+}
+
+// ─── App Lifecycle ───────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  // Show splash screen
+  // Show splash screen immediately
   createSplashWindow();
   createTray();
 
-  // Start services
+  // Step 1: Docker (database)
+  await startDocker();
+
+  // Step 2: Backend (AI engine)
   await startBackend();
+
+  // Step 3: Frontend (dashboard)
   await startFrontend();
 
-  // Wait for frontend to be ready
+  // Step 4: Wait for everything to be ready
+  sendSplashStatus("ready", "active", "Verification des services...", 85);
   console.log("[Tnyfy] Waiting for frontend server...");
-  await waitForServer(FRONTEND_PORT);
+  const frontendReady = await waitForServer(FRONTEND_PORT);
+
+  if (frontendReady) {
+    sendSplashStatus("ready", "done", "Tnyfy est pret !", 100);
+  } else {
+    sendSplashStatus("ready", "error", "Timeout - ouverture quand meme...", 100);
+  }
+
+  // Small delay so user sees 100%
+  await new Promise((r) => setTimeout(r, 800));
 
   // Show main window
   createMainWindow();
@@ -306,7 +446,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   app.isQuitting = true;
-  stopServices();
+  stopAllServices();
 });
 
 app.on("activate", () => {
