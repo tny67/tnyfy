@@ -18,7 +18,7 @@ echo.
 cd /d "D:\Famille Massini\ia tnyfy"
 
 :: Check Docker
-echo [1/4] Verification de Docker...
+echo [1/2] Verification de Docker...
 docker info >nul 2>&1
 if %errorlevel% neq 0 (
     echo [!] Docker n'est pas demarre. Lancement de Docker Desktop...
@@ -28,41 +28,22 @@ if %errorlevel% neq 0 (
 )
 
 :: Start database services
-echo [2/4] Demarrage PostgreSQL + Redis...
+echo [2/2] Demarrage PostgreSQL + Redis...
 docker-compose up -d 2>nul
 if %errorlevel% neq 0 (
     echo [!] Docker Compose a echoue - verifiez que Docker est installe
-    echo     Le dashboard fonctionnera en mode demo sans base de donnees
+    echo     Le logiciel fonctionnera en mode demo sans base de donnees
 )
 timeout /t 3 /nobreak >nul
 
-:: Start Backend
-echo [3/4] Demarrage du backend Tnyfy...
-cd /d "D:\Famille Massini\ia tnyfy\backend"
-start "Tnyfy Backend" cmd /c ".venv\Scripts\activate && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
-timeout /t 3 /nobreak >nul
-
-:: Start Frontend
-echo [4/4] Demarrage du dashboard...
-cd /d "D:\Famille Massini\ia tnyfy\frontend"
-start "Tnyfy Frontend" cmd /c "set PATH=C:\Program Files\nodejs;%%PATH%% && npm run dev"
-timeout /t 5 /nobreak >nul
-
-:: Open browser
+:: Launch Tnyfy Electron app
 echo.
 echo ══════════════════════════════════════════════
 echo.
-echo   Tnyfy est pret !
-echo.
-echo   Dashboard : http://localhost:3000
-echo   API       : http://localhost:8000/docs
-echo.
-echo   Fermer cette fenetre n'arrete PAS Tnyfy.
-echo   Pour arreter : lancez stop-tnyfy.bat
+echo   Lancement de Tnyfy...
 echo.
 echo ══════════════════════════════════════════════
 
-:: Open dashboard in default browser
-start http://localhost:3000
-
-pause
+cd /d "D:\Famille Massini\ia tnyfy\desktop"
+set PATH=C:\Program Files\nodejs;%PATH%
+npx electron . --dev
