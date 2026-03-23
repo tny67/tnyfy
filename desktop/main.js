@@ -34,14 +34,19 @@ function sendSplashStatus(step, state, message, progress) {
 // ─── Splash Screen ───────────────────────────────────────────────
 
 function createSplashWindow() {
+  const { screen } = require("electron");
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const splashWidth = Math.round(width * 0.5);
+  const splashHeight = Math.round(height * 0.5);
+
   splashWindow = new BrowserWindow({
-    width: 380,
-    height: 380,
+    width: splashWidth,
+    height: splashHeight,
     frame: false,
-    transparent: true,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    backgroundColor: "#13112a",
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,

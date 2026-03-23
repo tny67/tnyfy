@@ -6,70 +6,44 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
       overflow: hidden;
-      height: 100vh;
-      background: transparent;
+      width: 100%;
+      height: 100%;
+      background: #13112a;
     }
     body {
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       -webkit-app-region: drag;
       user-select: none;
     }
     ::-webkit-scrollbar { display: none; }
 
-    .splash {
-      background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
-      border: 1px solid #2a2a3e;
-      border-radius: 28px;
-      padding: 50px 60px 40px;
-      text-align: center;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-      width: 100%;
-      height: 100%;
+    .banner {
+      flex: 1;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-    }
-
-    .logo {
-      width: 120px;
-      height: 120px;
-      margin-bottom: 32px;
-      animation: logoPulse 2s ease-in-out infinite;
-    }
-    .logo img {
       width: 100%;
-      height: 100%;
-      border-radius: 24px;
+    }
+    .banner img {
+      max-width: 70%;
+      max-height: 70%;
       object-fit: contain;
     }
-    @keyframes logoPulse {
-      0%, 100% { filter: drop-shadow(0 0 15px rgba(108, 92, 231, 0.4)); }
-      50% { filter: drop-shadow(0 0 35px rgba(108, 92, 231, 0.7)); }
-    }
 
-    h1 {
-      color: #e4e4ef;
-      font-size: 32px;
-      font-weight: 700;
-      margin-bottom: 36px;
-    }
-    h1 span { color: #6c5ce7; }
-
-    /* Progress bar */
     .progress-container {
-      width: 220px;
+      width: 200px;
       height: 3px;
-      background: #2a2a3e;
+      background: rgba(255,255,255,0.1);
       border-radius: 2px;
       overflow: hidden;
+      margin-bottom: 40px;
     }
     .progress-bar {
       height: 100%;
-      background: linear-gradient(90deg, #6c5ce7, #a29bfe, #00b894);
+      background: linear-gradient(90deg, #6c5ce7, #a29bfe);
       border-radius: 2px;
       width: 0%;
       transition: width 0.5s ease;
@@ -77,23 +51,18 @@
   </style>
 </head>
 <body>
-  <div class="splash">
-    <div class="logo">
-      <img src="icon.png" alt="Tnyfy">
-    </div>
-    <h1><span>tnyfy</span></h1>
-    <div class="progress-container">
-      <div class="progress-bar" id="progress"></div>
-    </div>
+  <div class="banner">
+    <img src="splash_banner.png" alt="tnyfy">
+  </div>
+  <div class="progress-container">
+    <div class="progress-bar" id="progress"></div>
   </div>
 
   <script>
     const { ipcRenderer } = require('electron');
-
     ipcRenderer.on('splash-status', (event, data) => {
-      const { progress } = data;
-      if (progress !== undefined) {
-        document.getElementById('progress').style.width = progress + '%';
+      if (data.progress !== undefined) {
+        document.getElementById('progress').style.width = data.progress + '%';
       }
     });
   </script>
